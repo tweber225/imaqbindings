@@ -79,7 +79,7 @@ class Board:
         
         # Open the interface & session
         device_name = device_name.encode()
-        self._ifid = self._interface_open(device_name)
+        self._ifid = self._interface_open(device_name) # prefer 'device name' over 'interface name'
         self._sid = self._session_open()
 
     @ctypes_sig([c_char_p, POINTER(c_uint32)])
