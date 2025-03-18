@@ -131,7 +131,7 @@ class Board:
         bid = c_uint32()
         imaq.imgCreateBufList(num_elements, byref(bid))       
         print(f"Buffer list with {num_elements} buffers created.")
-        return bid
+        self._bid = bid
 
     @ctypes_sig([c_uint32, c_uint32, c_uint32, POINTER(c_uint32)])
     def get_buffer_element(self, element: int, item_type: BufferElement):
@@ -152,13 +152,21 @@ class Board:
         set_buffer_element_size(), and set_buffer_element_command().
         """
         imaq.imgSetBufferElement(self._bid, element, item_type, item_value)
+
+    @ctypes_sig([c_uint32, c_uint32, c_uint32, c_void_p])
+    def set_buffer_element_2(self, element: int, item_type: BufferElement, value_pointer):
+        """ 
+        Sets the value for a specified itemType for a buffer in a buffer list.
+        (this version allows setting by variable type)
+        """
+        imaq.imgSetBufferElement2(self._bid, element, item_type, value_pointer)
     
     def set_buffer_element_address(self, element: int, address):
         """
         Sets buffer list element pointer to allocated buffer memory.        
-        Convenience method: calls set_buffer_element()
+        Convenience method: calls set_buffer_element_from_void_ptr()
         """
-        self.set_buffer_element(element, BufferElement.IMG_BUFF_ADDRESS, address)
+        self.set_buffer_element_2(element, BufferElement.IMG_BUFF_ADDRESS, address)
                                   
     def set_buffer_element_size(self, element: int, size_bytes: int):
         """
@@ -167,24 +175,15 @@ class Board:
         """
         self.set_buffer_element(element, BufferElement.IMG_BUFF_SIZE, size_bytes)
 
-    def set_buffer_element_command(self, element: int, command: str):
+    def set_buffer_element_command(self, element: int, command: BufferCommand):
         """
-        Sets the buffer command. Must be either "next", "loop", "pass", 
-        or "stop" (caps insensitive).
+        Sets the buffer command. 
         Convenience method: calls set_buffer_element()
         """
-        command = command.lower()
-        if command == "next":
-            buf_cmd = BufferCommand.IMG_CMD_NEXT
-        elif command == "loop":
-            buf_cmd = BufferCommand.IMG_CMD_LOOP
-        elif command == "pass":
-            buf_cmd = BufferCommand.IMG_CMD_PASS
-        elif command == "stop":
-            buf_cmd = BufferCommand.IMG_CMD_STOP
-        else:
+        if not isinstance(command, BufferCommand):
             raise TypeError("Unrecognized buffer element command")
-        self.set_buffer_element(element, BufferElement.IMG_BUFF_COMMAND, buf_cmd)
+            
+        self.set_buffer_element(element, BufferElement.IMG_BUFF_COMMAND, command)
 
     @ctypes_sig([c_uint32, c_uint32])
     def session_configure(self):
@@ -207,6 +206,17 @@ class Board:
         Not implemented: callback function
         """
         imaq.imgSessionAcquire(self._sid, async_flag, None)
+
+    @ctypes_sig([c_uint32, POINTER(c_uint32)])
+    def session_abort(self):
+        """
+        Stops an acquisition immediately. This function clears all acquisition 
+        configuration, disassociates the session from the buffer list, and 
+        unregisters all acquisition triggers.
+        """
+        last_buffer = c_uint32()
+        imaq.imgSessionAbort(self._sid, byref(last_buffer))
+        # could return last buffer
     
     @ctypes_sig([c_uint32])
     def session_serial_flush(self):
@@ -290,29 +300,36 @@ class Buffer:
     Buffer for data transfer.
     """
     def __init__(self, board: Board, shape: tuple[int], bytes_per_pixel: int):
+        # shape dimensions: sub-buffers, lines per buffer, pixels per line
+        if not isinstance(shape, tuple):
+            raise ValueError('Argument, shape must be a tuple')
+        if len(shape) != 3:
+            raise ValueError(f'Invalid number of shape dimensions, expecting 3, got {len(shape)}') 
         self._size_bytes = np.prod(shape) * bytes_per_pixel
         self._sid = board._sid
 
         # Make a null pointer to byte array
-        self._ptr = POINTER(c_int8)()
+        self.ptr = POINTER(c_int8)()
 
         self._create_buffer(
             sid=self._sid, 
             where=BufferLocation.IMG_HOST_FRAME,
             buffer_size=self._size_bytes,
-            buffer_ptr_addr=byref(self._ptr)
+            buffer_ptr_addr=byref(self.ptr)
         )
 
-        self._adr = ctypes.addressof(self._ptr.contents)
+        self._adr = ctypes.addressof(self.ptr.contents)
 
         ctypes_array = (c_int8 * self._size_bytes).from_address(self._adr)
         if bytes_per_pixel == 1:
             dtype = np.uint8
+            shape = (*shape, 1)
         elif bytes_per_pixel == 2:
             dtype = np.uint16
+            shape = (*shape, 1)
         elif (bytes_per_pixel == 3) or (bytes_per_pixel == 4):
             dtype = np.uint8
-            shape = (shape[0], shape[1], bytes_per_pixel)
+            shape = (*shape, bytes_per_pixel)
 
         self.buffer = np.frombuffer(ctypes_array, dtype=dtype)
         self.buffer.shape = shape
@@ -323,8 +340,11 @@ class Buffer:
         imaq.imgCreateBuffer(sid, where, buffer_size, buffer_ptr_addr)
     
     def __del__(self):
-        self._dispose_buffer(self._ptr)
-        print("Disposed buffer")
+        try:
+            self._dispose_buffer(self.ptr)
+            print("Disposed buffer")
+        except:
+            pass
 
     @ctypes_sig([c_void_p])
     def _dispose_buffer(self, ptr):
@@ -334,15 +354,3 @@ class Buffer:
         """ Explicitly dispose the buffer. """
         self.__del__()
 
-
-
-# TEST
-if __name__ == "__main__":
-
-    board = Board()
-    sn = board.get_attribute(imenum.DeviceInformation.IMG_ATTR_GETSERIAL)
-    sn_hex = f"{sn:08X}"
-    print(sn)
-    print(sn_hex)
-
-    blist = board.create_buf_list(100)
