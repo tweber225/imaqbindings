@@ -113,13 +113,13 @@ class Board:
         return value.value
     
     @ctypes_sig([c_uint32, c_uint32, c_uint32])
-    def set_attribute(self, attr: IMAQAttribute, value: int):
+    def set_attribute_2(self, attr: IMAQAttribute, value: int):
         """
         Sets an attribute value.
 
         Not implemented: setting uint64 or double values.
         """
-        imaq.imgSetAttribute(self._sid, attr, value)
+        imaq.imgSetAttribute2(self._sid, attr, value)
 
     @ctypes_sig([c_uint32, POINTER(c_uint32)])
     def create_buf_list(self, num_elements: int):
