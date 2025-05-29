@@ -70,7 +70,7 @@ class Board:
       device_name (int): The name identified in NI MAX. Defaults to "img0".
       timeout (float): Amount of time to wait for serial response.
     """
-    def __init__(self, device_name:str = "img0", timeout:float = 0.5):
+    def __init__(self, device_name: str = "img0", timeout:float = 0.5):
         self._ifid = None # Interface ID
         self._sid = None # Session ID
         self._bid = None # Buffer list ID
@@ -78,7 +78,6 @@ class Board:
         self.serial_timeout = timeout # in seconds
         
         # Open the interface & session
-        device_name = device_name.encode()
         self._ifid = self._interface_open(device_name) # prefer 'device name' over 'interface name'
         self._sid = self._session_open()
 
@@ -90,7 +89,7 @@ class Board:
         INTERFACE_ID.
         """
         ifid = c_uint32() # Interface ID
-        imaq.imgInterfaceOpen(interface_name, byref(ifid))
+        imaq.imgInterfaceOpen(interface_name.encode(), byref(ifid))
         return ifid
 
     @ctypes_sig([c_uint32, POINTER(c_uint32)])
@@ -299,13 +298,16 @@ class Buffer:
     """
     Buffer for data transfer.
     """
-    def __init__(self, board: Board, shape: tuple[int], bytes_per_pixel: int):
+    def __init__(self, board: Board, shape: tuple[int, ...], bytes_per_pixel: int):
         # shape dimensions: sub-buffers, lines per buffer, pixels per line
         if not isinstance(shape, tuple):
             raise ValueError('Argument, shape must be a tuple')
         if len(shape) != 3:
             raise ValueError(f'Invalid number of shape dimensions, expecting 3, got {len(shape)}') 
-        self._size_bytes = np.prod(shape) * bytes_per_pixel
+        if board._sid is None:
+            raise RuntimeError("Board session not initialized")
+        
+        self._size_bytes = int(np.prod(shape)) * bytes_per_pixel
         self._sid = board._sid
 
         # Make a null pointer to byte array
@@ -336,7 +338,11 @@ class Buffer:
         self.ctypes_buffer = ctypes_array
     
     @ctypes_sig([c_uint32, c_uint32, c_uint32, POINTER(POINTER(ctypes.c_int8))])
-    def _create_buffer(self, sid: int, where: BufferLocation, buffer_size: int, buffer_ptr_addr):
+    def _create_buffer(self, 
+                       sid: int | c_uint32, 
+                       where: BufferLocation, 
+                       buffer_size: int, 
+                       buffer_ptr_addr):
         imaq.imgCreateBuffer(sid, where, buffer_size, buffer_ptr_addr)
     
     def __del__(self):
