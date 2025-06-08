@@ -129,7 +129,7 @@ class Board:
         """
         bid = c_uint32()
         imaq.imgCreateBufList(num_elements, byref(bid))       
-        print(f"Buffer list with {num_elements} buffers created.")
+        #print(f"Buffer list with {num_elements} elements created.")
         self._bid = bid
 
     @ctypes_sig([c_uint32, c_uint32, c_uint32, POINTER(c_uint32)])
@@ -302,8 +302,9 @@ class Buffer:
         # shape dimensions: sub-buffers, lines per buffer, pixels per line
         if not isinstance(shape, tuple):
             raise ValueError('Argument, shape must be a tuple')
-        if len(shape) != 3:
-            raise ValueError(f'Invalid number of shape dimensions, expecting 3, got {len(shape)}') 
+        if len(shape) != 2:
+            raise ValueError(f'Invalid number of shape dimensions, expecting 2 '
+                             '(height, width), got {len(shape)}') 
         if board._sid is None:
             raise RuntimeError("Board session not initialized")
         
